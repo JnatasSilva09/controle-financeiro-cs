@@ -50,8 +50,13 @@ public class FinanceiroService
     {
         if (string.IsNullOrWhiteSpace(nome))
             throw new ArgumentException("Informe o nome da conta.");
+        var nomeNormalizado = nome.Trim();
         using var db = new AppDbContext();
-        db.Contas.Add(new Conta { Nome = nome.Trim(), SaldoInicial = saldoInicial });
+        if (db.Contas.AsEnumerable().Any(c =>
+                string.Equals(c.Nome.Trim(), nomeNormalizado, StringComparison.OrdinalIgnoreCase)))
+            throw new ArgumentException("Já existe uma conta com esse nome. Escolha outro nome para facilitar a identificação.");
+
+        db.Contas.Add(new Conta { Nome = nomeNormalizado, SaldoInicial = saldoInicial });
         db.SaveChanges();
     }
 
@@ -84,8 +89,13 @@ public class FinanceiroService
     {
         if (string.IsNullOrWhiteSpace(nome))
             throw new ArgumentException("Informe o nome da categoria.");
+        var nomeNormalizado = nome.Trim();
         using var db = new AppDbContext();
-        db.Categorias.Add(new Categoria { Nome = nome.Trim(), Tipo = tipo });
+        if (db.Categorias.AsEnumerable().Any(c => c.Tipo == tipo &&
+                string.Equals(c.Nome.Trim(), nomeNormalizado, StringComparison.OrdinalIgnoreCase)))
+            throw new ArgumentException($"Já existe uma categoria de {tipo.ToString().ToLowerInvariant()} com esse nome.");
+
+        db.Categorias.Add(new Categoria { Nome = nomeNormalizado, Tipo = tipo });
         db.SaveChanges();
     }
 
@@ -110,25 +120,59 @@ public class FinanceiroService
         return db.Lancamentos.Find(id);
     }
 
-    private static void Validar(Lancamento l)
+    private static void ValidarCampos(Lancamento l)
     {
         if (string.IsNullOrWhiteSpace(l.Descricao))
-            throw new ArgumentException("Informe a descrição.");
+            throw new ArgumentException("Dê um nome para este lançamento, por exemplo: Conta de luz ou Salário.");
+        if (l.Descricao.Trim().Length > 120)
+            throw new ArgumentException("A descrição deve ter no máximo 120 caracteres.");
         if (l.Valor <= 0)
-            throw new ArgumentException("O valor deve ser maior que zero.");
+            throw new ArgumentException("Informe um valor maior que R$ 0,00.");
         if (l.CategoriaId <= 0)
-            throw new ArgumentException("Escolha uma categoria.");
+            throw new ArgumentException("Selecione uma categoria para organizar este lançamento.");
         if (l.ContaId <= 0)
-            throw new ArgumentException("Escolha uma conta.");
+            throw new ArgumentException("Selecione a conta relacionada a este lançamento.");
+        if (!Enum.IsDefined(typeof(TipoLancamento), l.Tipo))
+            throw new ArgumentException("Selecione se o lançamento é uma receita ou uma despesa.");
+    }
+
+    private static void ValidarRelacionamentos(AppDbContext db, Lancamento l)
+    {
+        var contaExiste = db.Contas.Any(c => c.Id == l.ContaId);
+        if (!contaExiste)
+            throw new ArgumentException("A conta selecionada não foi encontrada. Atualize a tela e tente novamente.");
+
+        var categoria = db.Categorias.FirstOrDefault(c => c.Id == l.CategoriaId);
+        if (categoria == null)
+            throw new ArgumentException("A categoria selecionada não foi encontrada. Atualize a tela e tente novamente.");
+
+        if (categoria.Tipo != l.Tipo)
+            throw new ArgumentException($"A categoria '{categoria.Nome}' é de {categoria.Tipo.ToString().ToLowerInvariant()}, mas o lançamento está marcado como {l.Tipo.ToString().ToLowerInvariant()}. Selecione uma categoria compatível.");
     }
 
     public void Salvar(Lancamento l)
     {
-        Validar(l);
+        ValidarCampos(l);
 
         using var db = new AppDbContext();
+        ValidarRelacionamentos(db, l);
         if (l.Id == 0) db.Lancamentos.Add(l);
-        else db.Lancamentos.Update(l);
+        else
+        {
+            var existente = db.Lancamentos.Find(l.Id);
+            if (existente == null)
+                throw new ArgumentException("Este lançamento não foi encontrado. Atualize a lista antes de salvar.");
+
+            existente.Descricao = l.Descricao.Trim();
+            existente.Valor = l.Valor;
+            existente.Data = l.Data;
+            existente.Vencimento = l.Vencimento;
+            existente.Pago = l.Pago;
+            existente.Tipo = l.Tipo;
+            existente.CategoriaId = l.CategoriaId;
+            existente.ContaId = l.ContaId;
+        }
+        if (l.Id == 0) l.Descricao = l.Descricao.Trim();
         db.SaveChanges();
     }
 
@@ -140,11 +184,14 @@ public class FinanceiroService
     /// </summary>
     public void SalvarRepetido(Lancamento modelo, ModoRepeticao modo, int quantidade)
     {
-        Validar(modelo);
+        ValidarCampos(modelo);
+        if (modo != ModoRepeticao.Parcelado && modo != ModoRepeticao.Recorrente)
+            throw new ArgumentException("Escolha se deseja parcelar ou repetir este lançamento mensalmente.");
         if (quantidade < 2 || quantidade > 120)
-            throw new ArgumentException("A quantidade deve estar entre 2 e 120.");
+            throw new ArgumentException("Escolha uma quantidade entre 2 e 120 ocorrências.");
 
         using var db = new AppDbContext();
+        ValidarRelacionamentos(db, modelo);
         for (int i = 0; i < quantidade; i++)
         {
             db.Lancamentos.Add(new Lancamento
@@ -245,7 +292,11 @@ public class FinanceiroService
                     Conta = l.Conta.Nome,
                     Tipo = l.Tipo.ToString(),
                     Valor = l.Valor,
-                    Situacao = l.Pago ? "Pago" : "Pendente",
+                    Situacao = l.Pago
+                        ? "Pago"
+                        : l.Vencimento.HasValue && l.Vencimento.Value.Date < DateTime.Today
+                            ? "Vencido"
+                            : "Pendente",
                     Vencimento = l.Vencimento
                 })
                 .ToList();
