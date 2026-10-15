@@ -1,11 +1,6 @@
 using ControleFinanceiro.Data;
 using ControleFinanceiro.Models;
 using ControleFinanceiro.Services;
-using ScottPlot.WinForms;
-using System;
-using System.Drawing;
-using System.Windows.Forms;
-using System.Linq;
 
 namespace ControleFinanceiro.Forms;
 
@@ -19,194 +14,121 @@ public class MainForm : Form
     private readonly FinanceiroService _svc = new();
     private bool _carregando;
 
-    // Paleta de Cores Estilo FlowFin Profissional
-    private static readonly Color CorSidebar = Color.FromArgb(30, 41, 59);       
-    private static readonly Color CorSidebarHover = Color.FromArgb(51, 65, 85);       
-    private static readonly Color CorFundoClaro = Color.FromArgb(248, 250, 252);   
-    private static readonly Color CorVerdeSucesso = Color.FromArgb(16, 185, 129);  
-    private static readonly Color CorBordaCard = Color.FromArgb(226, 232, 240);    
-
-    // Componentes de Filtro e Dados
     private readonly DateTimePicker dtMes = new()
     {
         Format = DateTimePickerFormat.Custom,
         CustomFormat = "MMMM 'de' yyyy",
         ShowUpDown = true,
-        Width = 160
+        Width = 170
     };
-    private readonly ComboBox cmbConta = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 140 };
-    private readonly ComboBox cmbCategoria = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 140 };
-    private readonly ComboBox cmbPeriodoRapido = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 130 };
+    private readonly ComboBox cmbConta = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160 };
+    private readonly ComboBox cmbCategoria = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160 };
+    private readonly ComboBox cmbSituacao = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 110 };
+    private readonly TextBox txtBusca = new() { Width = 170, PlaceholderText = "Descrição..." };
 
     private readonly DataGridView grid = NovaGrid();
-    
-    // Cards Superiores com Indicadores
-    private readonly Panel cardSaldo = CriarCardPanel();
-    private readonly Panel cardReceitas = CriarCardPanel();
-    private readonly Panel cardDespesas = CriarCardPanel();
-    private readonly Panel cardTransacoes = CriarCardPanel();
+    private readonly DataGridView gridCat = NovaGrid();
 
-    private readonly Label lblSaldoVal = new() { Font = new Font("Segoe UI", 13f, FontStyle.Bold), Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
-    private readonly Label lblReceitasVal = new() { Font = new Font("Segoe UI", 13f, FontStyle.Bold), Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Color.FromArgb(16, 185, 129) };
-    private readonly Label lblDespesasVal = new() { Font = new Font("Segoe UI", 13f, FontStyle.Bold), Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Color.FromArgb(225, 29, 72) };
-    private readonly Label lblTransacoesVal = new() { Font = new Font("Segoe UI", 13f, FontStyle.Bold), Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
-
-    private readonly Label lblSaldoSub = new() { Font = new Font("Segoe UI", 7.5f), ForeColor = Color.FromArgb(100, 116, 139), Dock = DockStyle.Bottom, Height = 18 };
-    private readonly Label lblReceitasSub = new() { Font = new Font("Segoe UI", 7.5f), ForeColor = Color.FromArgb(100, 116, 139), Dock = DockStyle.Bottom, Height = 18 };
-    private readonly Label lblDespesasSub = new() { Font = new Font("Segoe UI", 7.5f), ForeColor = Color.FromArgb(100, 116, 139), Dock = DockStyle.Bottom, Height = 18 };
-    private readonly Label lblTransacoesSub = new() { Font = new Font("Segoe UI", 7.5f), ForeColor = Color.FromArgb(100, 116, 139), Dock = DockStyle.Bottom, Height = 18 };
-
-    // Gráfico ScottPlot integrado
-    private readonly FormsPlot plotGrafico = new() { Dock = DockStyle.Fill };
+    private readonly Label lblSaldo = NovoCard();
+    private readonly Label lblReceitas = NovoCard();
+    private readonly Label lblDespesas = NovoCard();
+    private readonly Label lblPendente = NovoCard();
 
     public MainForm()
     {
         Text = "Controle Financeiro Pessoal";
-        Width = 1320;
-        Height = 800;
-        MinimumSize = new Size(1100, 700);
+        Width = 1150;
+        Height = 680;
         StartPosition = FormStartPosition.CenterScreen;
         Font = new Font("Segoe UI", 9.5f);
-        BackColor = CorFundoClaro;
 
-       // 1. MENU LATERAL (Sidebar com o logotipo no topo e botões abaixo)
-        var pnlSidebar = new Panel
-        {
-            Dock = DockStyle.Left,
-            Width = 240,
-            BackColor = CorSidebar,
-            Padding = new Padding(10)
-        };
-
-        var lblLogo = new Label
-        {
-            Text = "Meu Financeiro",
-            Font = new Font("Segoe UI", 14f, FontStyle.Bold),
-            ForeColor = Color.White,
-            Dock = DockStyle.Top,
-            Height = 60,
-            TextAlign = ContentAlignment.MiddleCenter
-        };
-
-        // Adiciona primeiro o logotipo para ocupar o topo
-        pnlSidebar.Controls.Add(lblLogo);
-
-        // Adiciona os botões de atalho em sequência (de cima para baixo)
-        pnlSidebar.Controls.Add(BotaoMenu("🔒  Fazer Backup", FazerBackup));
-        pnlSidebar.Controls.Add(BotaoMenu("📥  Exportar Excel", ExportarExcel));
-        pnlSidebar.Controls.Add(BotaoMenu("📁  Categorias", AbrirCategorias));
-        pnlSidebar.Controls.Add(BotaoMenu("💳  Gerir Contas", AbrirContas));
-        pnlSidebar.Controls.Add(BotaoMenu("📊  Visão Geral", () => { }));
-        
-
-        // 2. PAINEL PRINCIPAL
-        var pnlPrincipal = new Panel
-        {
-            Dock = DockStyle.Fill,
-            Padding = new Padding(15)
-        };
-
-        var pnlHeaderTop = new Panel
-        {
-            Dock = DockStyle.Top,
-            Height = 55
-        };
-        
-        var btnNovaTransacao = new Button
-        {
-            Text = "+ Nova Transação",
-            BackColor = CorVerdeSucesso,
-            ForeColor = Color.White,
-            Font = new Font("Segoe UI", 10f, FontStyle.Bold),
-            FlatStyle = FlatStyle.Flat,
-            Width = 165,
-            Height = 38,
-            Cursor = Cursors.Hand,
-            Dock = DockStyle.Right
-        };
-        btnNovaTransacao.FlatAppearance.BorderSize = 0;
-        btnNovaTransacao.Click += (_, _) => Novo();
-        pnlHeaderTop.Controls.Add(btnNovaTransacao);
-
-        var lblTituloTopo = new Label
-        {
-            Text = "Visão Geral",
-            Font = new Font("Segoe UI", 16f, FontStyle.Bold),
-            ForeColor = Color.FromArgb(30, 41, 59),
-            Dock = DockStyle.Left,
-            TextAlign = ContentAlignment.MiddleLeft,
-            Width = 200
-        };
-        pnlHeaderTop.Controls.Add(lblTituloTopo);
-
-        // 3. CARDS SUPERIORES COM INDICADORES
+        // ----- Resumo (cards) -----
         var pnlResumo = new TableLayoutPanel
         {
             Dock = DockStyle.Top,
-            Height = 95,
+            Height = 80,
             ColumnCount = 4,
-            Padding = new Padding(0, 0, 0, 10)
+            Padding = new Padding(8)
         };
-        for (int i = 0; i < 4; i++) pnlResumo.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
+        for (int i = 0; i < 4; i++)
+            pnlResumo.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
+        pnlResumo.Controls.Add(lblSaldo, 0, 0);
+        pnlResumo.Controls.Add(lblReceitas, 1, 0);
+        pnlResumo.Controls.Add(lblDespesas, 2, 0);
+        pnlResumo.Controls.Add(lblPendente, 3, 0);
 
-        MontarConteudoCard(cardSaldo, "Saldo Total", lblSaldoVal, lblSaldoSub);
-        MontarConteudoCard(cardReceitas, "Receitas", lblReceitasVal, lblReceitasSub);
-        MontarConteudoCard(cardDespesas, "Despesas", lblDespesasVal, lblDespesasSub);
-        MontarConteudoCard(cardTransacoes, "Transações", lblTransacoesVal, lblTransacoesSub);
+        lblSaldo.BackColor = Color.AliceBlue;
+        lblReceitas.BackColor = Color.Honeydew;
+        lblDespesas.BackColor = Color.MistyRose;
+        lblPendente.BackColor = Color.LemonChiffon;
 
-        pnlResumo.Controls.Add(cardSaldo, 0, 0);
-        pnlResumo.Controls.Add(cardReceitas, 1, 0);
-        pnlResumo.Controls.Add(cardDespesas, 2, 0);
-        pnlResumo.Controls.Add(cardTransacoes, 3, 0);
+        cmbSituacao.Items.AddRange(new object[] { "Todas", "Pendentes", "Pagos", "Vencidos" });
+        cmbSituacao.SelectedIndex = 0;
 
-        // 4. PAINEL DE FILTROS AVANÇADOS E RÁPIDOS
-        cmbPeriodoRapido.Items.AddRange(new object[] { "Mês Atual", "Este Ano", "Personalizado" });
-        cmbPeriodoRapido.SelectedIndex = 0;
-
+        // ----- Filtros -----
         var pnlFiltros = new FlowLayoutPanel
         {
             Dock = DockStyle.Top,
-            Height = 50,
-            Padding = new Padding(0, 5, 0, 5)
+            Height = 46,
+            Padding = new Padding(8, 8, 0, 0)
         };
         pnlFiltros.Controls.AddRange(new Control[]
         {
-            Rotulo("Período:"), cmbPeriodoRapido,
             Rotulo("Mês:"), dtMes,
             Rotulo("Conta:"), cmbConta,
             Rotulo("Categoria:"), cmbCategoria,
-            BotaoAcaoSecundaria("Pago/Pendente", AlternarPago),
-            BotaoAcaoSecundaria("Editar", Editar),
-            BotaoAcaoSecundaria("Excluir", Excluir)
+            Rotulo("Situação:"), cmbSituacao,
+            Rotulo("Buscar:"), txtBusca
         });
 
-        // 5. ÁREA INFERIOR: Tabela + Gráfico Otimizado
-        var splitInferior = new SplitContainer
+        // ----- Botões -----
+        var pnlBotoes = new FlowLayoutPanel
         {
-            Dock = DockStyle.Fill,
-            SplitterDistance = 650,
-            Orientation = Orientation.Vertical
+            Dock = DockStyle.Bottom,
+            Height = 54,
+            Padding = new Padding(8)
         };
+        pnlBotoes.Controls.AddRange(new Control[]
+        {
+            Botao("Novo", Novo),
+            Botao("Editar", Editar),
+            Botao("Duplicar", Duplicar),
+            Botao("Excluir", Excluir),
+            Botao("Pago / Pendente", AlternarPago),
+            Botao("Contas", AbrirContas),
+            Botao("Categorias", AbrirCategorias),
+            Botao("Gráficos", AbrirGraficos),
+            Botao("Exportar Excel", ExportarExcel),
+            Botao("Backup", FazerBackup),
+            Botao("Restaurar", RestaurarBackup)
+        });
 
-        EstilizarGrid(grid);
-        splitInferior.Panel1.Controls.Add(grid);
-        
-        var pnlGraficoContainer = new Panel { Dock = DockStyle.Fill, Padding = new Padding(12, 0, 0, 0), BackColor = Color.White };
-        pnlGraficoContainer.Controls.Add(plotGrafico);
-        splitInferior.Panel2.Controls.Add(pnlGraficoContainer);
+        gridCat.Dock = DockStyle.Right;
+        gridCat.Width = 300;
+        grid.Dock = DockStyle.Fill;
 
-        pnlPrincipal.Controls.AddRange(new Control[] { splitInferior, pnlFiltros, pnlResumo, pnlHeaderTop });
-        Controls.AddRange(new Control[] { pnlPrincipal, pnlSidebar });
+        // Ordem importa para o Dock: o último adicionado é posicionado primeiro
+        Controls.AddRange(new Control[] { grid, gridCat, pnlBotoes, pnlFiltros, pnlResumo });
 
-        // Eventos
+        // ----- Eventos -----
         dtMes.ValueChanged += (_, _) => { if (!_carregando) Carregar(); };
         cmbConta.SelectedIndexChanged += (_, _) => { if (!_carregando) Carregar(); };
         cmbCategoria.SelectedIndexChanged += (_, _) => { if (!_carregando) Carregar(); };
-        cmbPeriodoRapido.SelectedIndexChanged += (_, _) =>
+        cmbSituacao.SelectedIndexChanged += (_, _) => { if (!_carregando) Carregar(); };
+        txtBusca.TextChanged += (_, _) => { if (!_carregando) Carregar(); };
+
+        // Atalhos: Ctrl+N novo, Ctrl+D duplicar, Ctrl+F buscar, F5 atualizar, Delete exclui (com a tabela em foco)
+        KeyPreview = true;
+        KeyDown += (_, e) =>
         {
-            if (cmbPeriodoRapido.SelectedIndex == 0) dtMes.Value = DateTime.Today;
-            Carregar();
+            if (e.Control && e.KeyCode == Keys.N) { Novo(); e.SuppressKeyPress = true; }
+            else if (e.Control && e.KeyCode == Keys.D) { Duplicar(); e.SuppressKeyPress = true; }
+            else if (e.Control && e.KeyCode == Keys.F) { txtBusca.Focus(); e.SuppressKeyPress = true; }
+            else if (e.KeyCode == Keys.F5) { CarregarFiltros(); Carregar(); }
+            else if (e.KeyCode == Keys.Delete && ActiveControl == grid) { Excluir(); e.SuppressKeyPress = true; }
         };
+
+        Shown += (_, _) => AvisarVencimentos();
         grid.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) Editar(); };
         grid.CellFormatting += FormatarCelula;
 
@@ -218,69 +140,7 @@ public class MainForm : Form
         };
     }
 
-    private static Panel CriarCardPanel() => new()
-    {
-        Dock = DockStyle.Fill,
-        BackColor = Color.White,
-        Margin = new Padding(4),
-        Padding = new Padding(12, 8, 12, 8)
-    };
-
-    private static void MontarConteudoCard(Panel painel, string titulo, Label lblValor, Label lblSub)
-    {
-        var lblTitulo = new Label
-        {
-            Text = titulo.ToUpper(),
-            Font = new Font("Segoe UI", 8f, FontStyle.Bold),
-            ForeColor = Color.FromArgb(100, 116, 139),
-            Dock = DockStyle.Top,
-            Height = 18
-        };
-        painel.Controls.Add(lblValor);
-        painel.Controls.Add(lblSub);
-        painel.Controls.Add(lblTitulo);
-    }
-
- private static Button BotaoMenu(string texto, Action acao)
-    {
-        var b = new Button
-        {
-            Text = texto,
-            ForeColor = Color.FromArgb(203, 213, 225),
-            BackColor = Color.Transparent,
-            FlatStyle = FlatStyle.Flat,
-            Height = 44,
-            Dock = DockStyle.Top,
-            TextAlign = ContentAlignment.MiddleLeft,
-            Font = new Font("Segoe UI", 10f),
-            Cursor = Cursors.Hand,
-            Padding = new Padding(10, 0, 0, 0)
-        };
-        b.FlatAppearance.BorderSize = 0;
-        b.MouseEnter += (_, _) => { b.BackColor = CorSidebarHover; b.ForeColor = Color.White; };
-        b.MouseLeave += (_, _) => { b.BackColor = Color.Transparent; b.ForeColor = Color.FromArgb(203, 213, 225); };
-        b.Click += (_, _) => acao();
-        return b;
-    }
-
-    private static Button BotaoAcaoSecundaria(string texto, Action acao)
-    {
-        var b = new Button
-        {
-            Text = texto,
-            AutoSize = true,
-            Height = 30,
-            BackColor = Color.White,
-            ForeColor = Color.FromArgb(30, 41, 59),
-            FlatStyle = FlatStyle.Flat,
-            Margin = new Padding(4, 3, 4, 2),
-            Cursor = Cursors.Hand
-        };
-        b.FlatAppearance.BorderColor = CorBordaCard;
-        b.Click += (_, _) => acao();
-        return b;
-    }
-
+    // ---------- Helpers de UI ----------
     private static DataGridView NovaGrid() => new()
     {
         ReadOnly = true,
@@ -291,49 +151,51 @@ public class MainForm : Form
         MultiSelect = false,
         AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
         RowHeadersVisible = false,
-        Dock = DockStyle.Fill,
-        BackgroundColor = Color.White,
-        BorderStyle = BorderStyle.None
+        BackgroundColor = Color.White
     };
 
-    private static void EstilizarGrid(DataGridView tabela)
+    private static Label NovoCard() => new()
     {
-        tabela.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
-        tabela.GridColor = CorBordaCard;
-        tabela.EnableHeadersVisualStyles = false;
-        tabela.ColumnHeadersDefaultCellStyle.BackColor = CorSidebar;
-        tabela.ColumnHeadersDefaultCellStyle.ForeColor = Color.White;
-        tabela.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
-        tabela.ColumnHeadersHeight = 36;
-        tabela.RowTemplate.Height = 32;
-        tabela.DefaultCellStyle.SelectionBackColor = Color.FromArgb(224, 242, 254);
-        tabela.DefaultCellStyle.SelectionForeColor = CorSidebar;
-        tabela.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(249, 250, 251);
-    }
+        Dock = DockStyle.Fill,
+        TextAlign = ContentAlignment.MiddleCenter,
+        Font = new Font("Segoe UI", 11f, FontStyle.Bold),
+        Margin = new Padding(4)
+    };
 
     private static Label Rotulo(string texto) => new()
     {
         Text = texto,
         AutoSize = true,
-        Margin = new Padding(4, 8, 2, 0),
-        ForeColor = Color.FromArgb(71, 85, 105)
+        Margin = new Padding(8, 6, 2, 0)
     };
 
+    private static Button Botao(string texto, Action acao)
+    {
+        var b = new Button { Text = texto, AutoSize = true, Padding = new Padding(8, 2, 8, 2) };
+        b.Click += (_, _) => acao();
+        return b;
+    }
+
+    // ---------- Carregamento ----------
     private void CarregarFiltros()
     {
         _carregando = true;
+
         var contaSel = (cmbConta.SelectedItem as Opcao)?.Id;
         var catSel = (cmbCategoria.SelectedItem as Opcao)?.Id;
 
         cmbConta.Items.Clear();
         cmbConta.Items.Add(new Opcao(null, "Todas"));
-        foreach (var c in _svc.ListarContas()) cmbConta.Items.Add(new Opcao(c.Id, c.Nome));
+        foreach (var c in _svc.ListarContas())
+            cmbConta.Items.Add(new Opcao(c.Id, c.Nome));
         Selecionar(cmbConta, contaSel);
 
         cmbCategoria.Items.Clear();
         cmbCategoria.Items.Add(new Opcao(null, "Todas"));
-        foreach (var c in _svc.ListarCategorias()) cmbCategoria.Items.Add(new Opcao(c.Id, c.Nome));
+        foreach (var c in _svc.ListarCategorias())
+            cmbCategoria.Items.Add(new Opcao(c.Id, c.Nome));
         Selecionar(cmbCategoria, catSel);
+
         _carregando = false;
     }
 
@@ -342,7 +204,11 @@ public class MainForm : Form
         cmb.SelectedIndex = 0;
         for (int i = 0; i < cmb.Items.Count; i++)
         {
-            if (cmb.Items[i] is Opcao o && o.Id == id) { cmb.SelectedIndex = i; break; }
+            if (cmb.Items[i] is Opcao o && o.Id == id)
+            {
+                cmb.SelectedIndex = i;
+                break;
+            }
         }
     }
 
@@ -353,52 +219,30 @@ public class MainForm : Form
         var contaId = (cmbConta.SelectedItem as Opcao)?.Id;
         var catId = (cmbCategoria.SelectedItem as Opcao)?.Id;
 
-        var lista = _svc.Listar(ano, mes, contaId, catId);
-        grid.DataSource = lista;
+        var busca = txtBusca.Text.Trim();
+        grid.DataSource = _svc.Listar(ano, mes, contaId, catId,
+            busca.Length > 0 ? busca : null, cmbSituacao.SelectedItem as string);
         ConfigurarColunas();
 
         var r = _svc.Resumo(ano, mes);
-        lblSaldoVal.Text = _svc.SaldoTotal().ToString("C2");
-        lblReceitasVal.Text = r.Receitas.ToString("C2");
-        lblDespesasVal.Text = r.Despesas.ToString("C2");
-        lblTransacoesVal.Text = lista.Count.ToString();
+        lblSaldo.Text = $"Saldo atual\n{_svc.SaldoTotal():C2}";
+        lblReceitas.Text = $"Receitas recebidas\n{r.Receitas:C2}";
+        lblDespesas.Text = $"Despesas pagas\n{r.Despesas:C2}";
+        lblPendente.Text = $"A pagar (pendentes)\n{r.Pendente:C2}";
 
-        // Subtítulos com indicadores inteligentes nos cards
-        lblSaldoSub.Text = "Acumulado geral";
-        lblReceitasSub.Text = $"Mês de {dtMes.Text}";
-        lblDespesasSub.Text = $"Mês de {dtMes.Text}";
-        lblTransacoesSub.Text = "Registros no período";
-
-        AtualizarGraficoScottPlot(ano, mes);
-    }
-
-    private void AtualizarGraficoScottPlot(int ano, int mes)
-    {
-        plotGrafico.Plot.Clear();
-        var despesasCat = _svc.DespesasPorCategoria(ano, mes);
-        if (despesasCat.Count > 0)
+        gridCat.DataSource = _svc.DespesasPorCategoria(ano, mes);
+        foreach (DataGridViewColumn c in gridCat.Columns)
         {
-            double[] valores = despesasCat.Select(x => (double)x.Total).ToArray();
-            string[] labels = despesasCat.Select(x => x.Categoria).ToArray();
-
-            var bar = plotGrafico.Plot.Add.Bars(valores);
-            foreach (var b in bar.Bars)
+            if (c.Name == "Total")
             {
-                b.FillColor = ScottPlot.Color.FromHex("#10B981");
+                c.DefaultCellStyle.Format = "C2";
+                c.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
             }
-
-            plotGrafico.Plot.Axes.Bottom.TickGenerator = new ScottPlot.TickGenerators.NumericManual(
-                Enumerable.Range(0, labels.Length).Select(i => (double)i).ToArray(),
-                labels
-            );
+            else if (c.Name == "Categoria")
+            {
+                c.HeaderText = "Categoria";
+            }
         }
-        else
-        {
-            plotGrafico.Plot.Title("Sem despesas registadas no período");
-        }
-
-        plotGrafico.Plot.HideGrid();
-        plotGrafico.Refresh();
     }
 
     private void ConfigurarColunas()
@@ -407,32 +251,42 @@ public class MainForm : Form
         {
             switch (c.Name)
             {
-                case "Id": c.Visible = false; break;
+                case "Id":
+                    c.Visible = false;
+                    break;
                 case "Data":
-                case "Vencimento": c.DefaultCellStyle.Format = "dd/MM/yyyy"; break;
-                case "Valor": c.DefaultCellStyle.Format = "C2"; c.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight; break;
-                case "Descricao": c.HeaderText = "Descrição"; c.FillWeight = 180; break;
-                case "Situacao": c.HeaderText = "Situação"; break;
+                case "Vencimento":
+                    c.DefaultCellStyle.Format = "dd/MM/yyyy";
+                    break;
+                case "Valor":
+                    c.DefaultCellStyle.Format = "C2";
+                    c.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
+                    break;
+                case "Descricao":
+                    c.HeaderText = "Descrição";
+                    c.FillWeight = 200;
+                    break;
+                case "Situacao":
+                    c.HeaderText = "Situação";
+                    break;
             }
         }
     }
 
     private void FormatarCelula(object? sender, DataGridViewCellFormattingEventArgs e)
     {
-        if (e.RowIndex < 0 || grid.Rows[e.RowIndex].DataBoundItem is not LancamentoItem item) return;
-        
-        // Destacar valor por cor (Receita = Verde, Despesa = Vermelho)
-        if (grid.Columns[e.ColumnIndex].Name == "Valor")
-            e.CellStyle!.ForeColor = item.Tipo == "Receita" ? CorVerdeSucesso : Color.FromArgb(225, 29, 72);
+        if (e.RowIndex < 0 || grid.Rows[e.RowIndex].DataBoundItem is not LancamentoItem item)
+            return;
 
-        // Alerta visual para vencimentos pendentes
-        if (grid.Columns[e.ColumnIndex].Name == "Vencimento" && item.Situacao == "Pendente" && item.Vencimento < DateTime.Today)
-        {
-            e.CellStyle!.ForeColor = Color.FromArgb(225, 29, 72);
-            e.CellStyle.Font = new Font(grid.Font, FontStyle.Bold);
-        }
+        if (grid.Columns[e.ColumnIndex].Name == "Valor")
+            e.CellStyle!.ForeColor = item.Tipo == "Receita" ? Color.DarkGreen : Color.Firebrick;
+
+        // Pendente e vencido: destaca a linha
+        if (item.Situacao == "Pendente" && (item.Vencimento ?? item.Data).Date < DateTime.Today)
+            e.CellStyle!.BackColor = Color.MistyRose;
     }
 
+    // ---------- Ações ----------
     private LancamentoItem? Selecionado() => grid.CurrentRow?.DataBoundItem as LancamentoItem;
 
     private void Novo()
@@ -447,6 +301,7 @@ public class MainForm : Form
         if (item == null) return;
         var lanc = _svc.Obter(item.Id);
         if (lanc == null) return;
+
         using var f = new LancamentoForm(_svc, lanc);
         if (f.ShowDialog(this) == DialogResult.OK) Carregar();
     }
@@ -455,7 +310,11 @@ public class MainForm : Form
     {
         var item = Selecionado();
         if (item == null) return;
-        if (MessageBox.Show($"Pretende excluir \"{item.Descricao}\"?", "Confirmar", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+
+        var resp = MessageBox.Show($"Excluir o lançamento \"{item.Descricao}\"?", "Confirmar",
+            MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+        if (resp != DialogResult.Yes) return;
+
         _svc.Excluir(item.Id);
         Carregar();
     }
@@ -468,35 +327,164 @@ public class MainForm : Form
         Carregar();
     }
 
+    private void AbrirGraficos()
+    {
+        using var f = new ChartsForm(_svc, dtMes.Value.Year, dtMes.Value.Month);
+        f.ShowDialog(this);
+    }
+
     private void ExportarExcel()
     {
         int ano = dtMes.Value.Year;
         int mes = dtMes.Value.Month;
-        using var dlg = new SaveFileDialog { Filter = "Excel (*.xlsx)|*.xlsx", FileName = $"financeiro_{ano}-{mes:00}.xlsx" };
+
+        using var dlg = new SaveFileDialog
+        {
+            Title = "Exportar para Excel",
+            Filter = "Planilha Excel (*.xlsx)|*.xlsx",
+            FileName = $"financeiro_{ano}-{mes:00}.xlsx"
+        };
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
         try
         {
-            ExcelExporter.Exportar(dlg.FileName, ano, mes, _svc.Listar(ano, mes, null, null), _svc.DespesasPorCategoria(ano, mes), _svc.Resumo(ano, mes));
-            MessageBox.Show("Planilha exportada com sucesso!", "Sucesso", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            var contaId = (cmbConta.SelectedItem as Opcao)?.Id;
+            var catId = (cmbCategoria.SelectedItem as Opcao)?.Id;
+            var busca = txtBusca.Text.Trim();
+            var situacao = cmbSituacao.SelectedItem as string;
+
+            ExcelExporter.Exportar(dlg.FileName, ano, mes,
+                _svc.Listar(ano, mes, contaId, catId, busca.Length > 0 ? busca : null, situacao),
+                _svc.DespesasPorCategoria(ano, mes),
+                _svc.Resumo(ano, mes));
+
+            var abrir = MessageBox.Show("Planilha salva! Deseja abrir agora?", "Exportar para Excel",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+            if (abrir == DialogResult.Yes)
+                System.Diagnostics.Process.Start(
+                    new System.Diagnostics.ProcessStartInfo(dlg.FileName) { UseShellExecute = true });
         }
-        catch (Exception ex) { MessageBox.Show(ex.Message, "Erro", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message + "\n\nSe o arquivo estiver aberto no Excel, feche-o e tente de novo.",
+                "Não foi possível exportar", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private void Duplicar()
+    {
+        var item = Selecionado();
+        if (item == null) return;
+        var original = _svc.Obter(item.Id);
+        if (original == null) return;
+
+        var copia = new Lancamento
+        {
+            Descricao = original.Descricao,
+            Valor = original.Valor,
+            Data = DateTime.Today,
+            Vencimento = null,
+            Pago = true,
+            Tipo = original.Tipo,
+            CategoriaId = original.CategoriaId,
+            ContaId = original.ContaId
+        };
+
+        using var f = new LancamentoForm(_svc, copia);
+        if (f.ShowDialog(this) == DialogResult.OK) Carregar();
+    }
+
+    private void AvisarVencimentos()
+    {
+        var lista = _svc.Vencimentos(7);
+        if (lista.Count == 0) return;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Contas vencidas ou que vencem nos próximos 7 dias:");
+        sb.AppendLine();
+        foreach (var i in lista.Take(10))
+        {
+            var venc = (i.Vencimento ?? i.Data).Date;
+            var marca = venc < DateTime.Today ? "VENCIDA"
+                      : venc == DateTime.Today ? "vence hoje"
+                      : $"vence {venc:dd/MM}";
+            sb.AppendLine($"• {i.Descricao} - {i.Valor:C2} ({marca})");
+        }
+        if (lista.Count > 10)
+            sb.AppendLine($"... e mais {lista.Count - 10}.");
+
+        MessageBox.Show(sb.ToString(), "Vencimentos",
+            MessageBoxButtons.OK, MessageBoxIcon.Warning);
+    }
+
+    private void RestaurarBackup()
+    {
+        using var dlg = new OpenFileDialog
+        {
+            Title = "Escolha o backup para restaurar",
+            Filter = "Banco SQLite (*.db)|*.db",
+            InitialDirectory = Directory.Exists(FinanceiroService.PastaBackups)
+                ? FinanceiroService.PastaBackups : ""
+        };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+        var resp = MessageBox.Show(
+            "Restaurar vai SUBSTITUIR todos os dados atuais pelos do backup.\n" +
+            "Uma cópia dos dados atuais será guardada antes.\n\nContinuar?",
+            "Restaurar backup", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+        if (resp != DialogResult.Yes) return;
+
+        try
+        {
+            var copia = _svc.Restaurar(dlg.FileName);
+            CarregarFiltros();
+            Carregar();
+            MessageBox.Show("Backup restaurado!\n\nCópia dos dados anteriores:\n" + copia,
+                "Restaurar backup", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "Não foi possível restaurar",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 
     private void FazerBackup()
     {
-        using var dlg = new SaveFileDialog { Filter = "Base de dados (*.db)|*.db", FileName = $"backup_{DateTime.Today:yyyyMMdd}.db" };
+        using var dlg = new SaveFileDialog
+        {
+            Title = "Salvar backup do banco",
+            Filter = "Banco SQLite (*.db)|*.db",
+            FileName = $"financeiro_{DateTime.Today:yyyyMMdd}.db"
+        };
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
-        try { _svc.Backup(dlg.FileName); MessageBox.Show("Backup efetuado com sucesso!", "Sucesso", MessageBoxButtons.OK, MessageBoxIcon.Information); }
-        catch (Exception ex) { MessageBox.Show(ex.Message, "Erro", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+
+        try
+        {
+            _svc.Backup(dlg.FileName);
+            MessageBox.Show("Backup salvo com sucesso!", "Backup",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "Não foi possível fazer o backup",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 
     private void AbrirContas()
     {
-        using var f = new ContasForm(_svc); f.ShowDialog(this); CarregarFiltros(); Carregar();
+        using var f = new ContasForm(_svc);
+        f.ShowDialog(this);
+        CarregarFiltros();
+        Carregar();
     }
 
     private void AbrirCategorias()
     {
-        using var f = new CategoriasForm(_svc); f.ShowDialog(this); CarregarFiltros(); Carregar();
+        using var f = new CategoriasForm(_svc);
+        f.ShowDialog(this);
+        CarregarFiltros();
+        Carregar();
     }
 }

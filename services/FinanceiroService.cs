@@ -50,13 +50,8 @@ public class FinanceiroService
     {
         if (string.IsNullOrWhiteSpace(nome))
             throw new ArgumentException("Informe o nome da conta.");
-        var nomeNormalizado = nome.Trim();
         using var db = new AppDbContext();
-        if (db.Contas.AsEnumerable().Any(c =>
-                string.Equals(c.Nome.Trim(), nomeNormalizado, StringComparison.OrdinalIgnoreCase)))
-            throw new ArgumentException("Já existe uma conta com esse nome. Escolha outro nome para facilitar a identificação.");
-
-        db.Contas.Add(new Conta { Nome = nomeNormalizado, SaldoInicial = saldoInicial });
+        db.Contas.Add(new Conta { Nome = nome.Trim(), SaldoInicial = saldoInicial });
         db.SaveChanges();
     }
 
@@ -89,13 +84,8 @@ public class FinanceiroService
     {
         if (string.IsNullOrWhiteSpace(nome))
             throw new ArgumentException("Informe o nome da categoria.");
-        var nomeNormalizado = nome.Trim();
         using var db = new AppDbContext();
-        if (db.Categorias.AsEnumerable().Any(c => c.Tipo == tipo &&
-                string.Equals(c.Nome.Trim(), nomeNormalizado, StringComparison.OrdinalIgnoreCase)))
-            throw new ArgumentException($"Já existe uma categoria de {tipo.ToString().ToLowerInvariant()} com esse nome.");
-
-        db.Categorias.Add(new Categoria { Nome = nomeNormalizado, Tipo = tipo });
+        db.Categorias.Add(new Categoria { Nome = nome.Trim(), Tipo = tipo });
         db.SaveChanges();
     }
 
@@ -120,59 +110,25 @@ public class FinanceiroService
         return db.Lancamentos.Find(id);
     }
 
-    private static void ValidarCampos(Lancamento l)
+    private static void Validar(Lancamento l)
     {
         if (string.IsNullOrWhiteSpace(l.Descricao))
-            throw new ArgumentException("Dê um nome para este lançamento, por exemplo: Conta de luz ou Salário.");
-        if (l.Descricao.Trim().Length > 120)
-            throw new ArgumentException("A descrição deve ter no máximo 120 caracteres.");
+            throw new ArgumentException("Informe a descrição.");
         if (l.Valor <= 0)
-            throw new ArgumentException("Informe um valor maior que R$ 0,00.");
+            throw new ArgumentException("O valor deve ser maior que zero.");
         if (l.CategoriaId <= 0)
-            throw new ArgumentException("Selecione uma categoria para organizar este lançamento.");
+            throw new ArgumentException("Escolha uma categoria.");
         if (l.ContaId <= 0)
-            throw new ArgumentException("Selecione a conta relacionada a este lançamento.");
-        if (!Enum.IsDefined(typeof(TipoLancamento), l.Tipo))
-            throw new ArgumentException("Selecione se o lançamento é uma receita ou uma despesa.");
-    }
-
-    private static void ValidarRelacionamentos(AppDbContext db, Lancamento l)
-    {
-        var contaExiste = db.Contas.Any(c => c.Id == l.ContaId);
-        if (!contaExiste)
-            throw new ArgumentException("A conta selecionada não foi encontrada. Atualize a tela e tente novamente.");
-
-        var categoria = db.Categorias.FirstOrDefault(c => c.Id == l.CategoriaId);
-        if (categoria == null)
-            throw new ArgumentException("A categoria selecionada não foi encontrada. Atualize a tela e tente novamente.");
-
-        if (categoria.Tipo != l.Tipo)
-            throw new ArgumentException($"A categoria '{categoria.Nome}' é de {categoria.Tipo.ToString().ToLowerInvariant()}, mas o lançamento está marcado como {l.Tipo.ToString().ToLowerInvariant()}. Selecione uma categoria compatível.");
+            throw new ArgumentException("Escolha uma conta.");
     }
 
     public void Salvar(Lancamento l)
     {
-        ValidarCampos(l);
+        Validar(l);
 
         using var db = new AppDbContext();
-        ValidarRelacionamentos(db, l);
         if (l.Id == 0) db.Lancamentos.Add(l);
-        else
-        {
-            var existente = db.Lancamentos.Find(l.Id);
-            if (existente == null)
-                throw new ArgumentException("Este lançamento não foi encontrado. Atualize a lista antes de salvar.");
-
-            existente.Descricao = l.Descricao.Trim();
-            existente.Valor = l.Valor;
-            existente.Data = l.Data;
-            existente.Vencimento = l.Vencimento;
-            existente.Pago = l.Pago;
-            existente.Tipo = l.Tipo;
-            existente.CategoriaId = l.CategoriaId;
-            existente.ContaId = l.ContaId;
-        }
-        if (l.Id == 0) l.Descricao = l.Descricao.Trim();
+        else db.Lancamentos.Update(l);
         db.SaveChanges();
     }
 
@@ -184,14 +140,11 @@ public class FinanceiroService
     /// </summary>
     public void SalvarRepetido(Lancamento modelo, ModoRepeticao modo, int quantidade)
     {
-        ValidarCampos(modelo);
-        if (modo != ModoRepeticao.Parcelado && modo != ModoRepeticao.Recorrente)
-            throw new ArgumentException("Escolha se deseja parcelar ou repetir este lançamento mensalmente.");
+        Validar(modelo);
         if (quantidade < 2 || quantidade > 120)
-            throw new ArgumentException("Escolha uma quantidade entre 2 e 120 ocorrências.");
+            throw new ArgumentException("A quantidade deve estar entre 2 e 120.");
 
         using var db = new AppDbContext();
-        ValidarRelacionamentos(db, modelo);
         for (int i = 0; i < quantidade; i++)
         {
             db.Lancamentos.Add(new Lancamento
@@ -248,6 +201,74 @@ public class FinanceiroService
         origem.BackupDatabase(destino);
     }
 
+    public static string PastaBackups =>
+        Path.Combine(Path.GetDirectoryName(AppDbContext.CaminhoBanco)!, "backups");
+
+    /// <summary>Cópia diária (auto_AAAAMMDD.db), mantendo só as mais recentes.</summary>
+    public void BackupAutomatico(int manter = 7)
+    {
+        Directory.CreateDirectory(PastaBackups);
+
+        var hoje = Path.Combine(PastaBackups, $"auto_{DateTime.Today:yyyyMMdd}.db");
+        if (!File.Exists(hoje)) Backup(hoje);
+
+        var antigos = Directory.GetFiles(PastaBackups, "auto_*.db")
+                               .OrderByDescending(f => f)
+                               .Skip(manter);
+        foreach (var arquivo in antigos)
+        {
+            try { File.Delete(arquivo); } catch { }
+        }
+    }
+
+    /// <summary>
+    /// Substitui os dados atuais pelos de um arquivo de backup.
+    /// Antes, guarda uma cópia dos dados atuais na pasta de backups.
+    /// </summary>
+    /// <returns>caminho da cópia de segurança dos dados anteriores.</returns>
+    public string Restaurar(string arquivo)
+    {
+        const string msgInvalido = "Este arquivo não parece ser um backup do Controle Financeiro.";
+
+        if (string.Equals(Path.GetFullPath(arquivo), Path.GetFullPath(AppDbContext.CaminhoBanco),
+                StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Escolha um arquivo de backup, não o banco em uso.");
+
+        try
+        {
+            using var teste = new SqliteConnection($"Data Source={arquivo};Mode=ReadOnly");
+            teste.Open();
+            using var cmd = teste.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' " +
+                              "AND name IN ('Lancamentos','Contas','Categorias');";
+            if (Convert.ToInt32(cmd.ExecuteScalar()) != 3)
+                throw new InvalidOperationException(msgInvalido);
+        }
+        catch (SqliteException)
+        {
+            throw new InvalidOperationException(msgInvalido);
+        }
+
+        Directory.CreateDirectory(PastaBackups);
+        var seguranca = Path.Combine(PastaBackups,
+            $"antes_restauracao_{DateTime.Now:yyyyMMdd_HHmmss}.db");
+        Backup(seguranca);
+
+        SqliteConnection.ClearAllPools();
+        using (var origem = new SqliteConnection($"Data Source={arquivo};Mode=ReadOnly"))
+        using (var destino = new SqliteConnection($"Data Source={AppDbContext.CaminhoBanco}"))
+        {
+            origem.Open();
+            destino.Open();
+            origem.BackupDatabase(destino);
+        }
+        SqliteConnection.ClearAllPools();
+
+        // Se o backup for de uma versão mais antiga, atualiza a estrutura
+        DbInitializer.Inicializar();
+        return seguranca;
+    }
+
     public void Excluir(int id)
     {
         using var db = new AppDbContext();
@@ -266,11 +287,13 @@ public class FinanceiroService
         db.SaveChanges();
     }
 
-    public List<LancamentoItem> Listar(int ano, int mes, int? contaId, int? categoriaId)
+    public List<LancamentoItem> Listar(int ano, int mes, int? contaId, int? categoriaId,
+        string? busca = null, string? situacao = null)
     {
         using var db = new AppDbContext();
         var inicio = new DateTime(ano, mes, 1);
         var fim = inicio.AddMonths(1);
+        var hoje = DateTime.Today;
 
         var q = db.Lancamentos
             .Include(l => l.Categoria)
@@ -279,28 +302,59 @@ public class FinanceiroService
 
         if (contaId.HasValue) q = q.Where(l => l.ContaId == contaId.Value);
         if (categoriaId.HasValue) q = q.Where(l => l.CategoriaId == categoriaId.Value);
+        if (!string.IsNullOrWhiteSpace(busca))
+            q = q.Where(l => EF.Functions.Like(l.Descricao, "%" + busca.Trim() + "%"));
+
+        switch (situacao)
+        {
+            case "Pendentes":
+                q = q.Where(l => !l.Pago);
+                break;
+            case "Pagos":
+                q = q.Where(l => l.Pago);
+                break;
+            case "Vencidos":
+                q = q.Where(l => !l.Pago && (l.Vencimento ?? l.Data) < hoje);
+                break;
+        }
 
         return q.OrderByDescending(l => l.Data)
                 .ThenByDescending(l => l.Id)
                 .ToList()
-                .Select(l => new LancamentoItem
-                {
-                    Id = l.Id,
-                    Data = l.Data,
-                    Descricao = l.Descricao,
-                    Categoria = l.Categoria.Nome,
-                    Conta = l.Conta.Nome,
-                    Tipo = l.Tipo.ToString(),
-                    Valor = l.Valor,
-                    Situacao = l.Pago
-                        ? "Pago"
-                        : l.Vencimento.HasValue && l.Vencimento.Value.Date < DateTime.Today
-                            ? "Vencido"
-                            : "Pendente",
-                    Vencimento = l.Vencimento
-                })
+                .Select(Mapear)
                 .ToList();
     }
+
+    /// <summary>Despesas pendentes vencidas ou que vencem nos próximos N dias.</summary>
+    public List<LancamentoItem> Vencimentos(int dias)
+    {
+        using var db = new AppDbContext();
+        var limite = DateTime.Today.AddDays(dias);
+
+        return db.Lancamentos
+            .Include(l => l.Categoria)
+            .Include(l => l.Conta)
+            .Where(l => !l.Pago
+                        && l.Tipo == TipoLancamento.Despesa
+                        && (l.Vencimento ?? l.Data) <= limite)
+            .OrderBy(l => l.Vencimento ?? l.Data)
+            .ToList()
+            .Select(Mapear)
+            .ToList();
+    }
+
+    private static LancamentoItem Mapear(Lancamento l) => new()
+    {
+        Id = l.Id,
+        Data = l.Data,
+        Descricao = l.Descricao,
+        Categoria = l.Categoria.Nome,
+        Conta = l.Conta.Nome,
+        Tipo = l.Tipo.ToString(),
+        Valor = l.Valor,
+        Situacao = l.Pago ? "Pago" : "Pendente",
+        Vencimento = l.Vencimento
+    };
 
     // ---------- Resumos ----------
     public decimal SaldoTotal()
